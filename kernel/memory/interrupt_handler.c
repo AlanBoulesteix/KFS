@@ -110,7 +110,8 @@ void process_special_key(keycode_t key)
         printk("\b");
         break;
     case KEY_F1:
-        printk("[F1]");
+        // printk("[F1]");
+        switch_terminal_window();
         break;
     case KEY_F2:
         printk("[F2]");
