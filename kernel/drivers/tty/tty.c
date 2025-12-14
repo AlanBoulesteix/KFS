@@ -100,10 +100,46 @@ void terminal_putnewline()
 	terminal_column = 0;
 }
 
+void terminal_puttab()
+{
+	uint32_t spaces = 4 - (terminal_column % 4);
+
+	for (uint32_t i = 0; i < spaces; i++)
+	{
+		terminal_putentryat(' ', terminal_color, terminal_column, terminal_row);
+
+		if (++terminal_column == VGA_WIDTH)
+		{
+			terminal_column = 0;
+			if (++terminal_row == VGA_HEIGHT)
+				indent_terminal_rows();
+		}
+	}
+}
+
+void terminal_putdel()
+{
+	if (terminal_column > 0)
+	{
+		terminal_column--;
+		terminal_putentryat(' ', terminal_color, terminal_column, terminal_row);
+	}
+	else if (terminal_row > 0)
+	{
+		terminal_row--;
+		terminal_column = VGA_WIDTH - 1;
+		terminal_putentryat(' ', terminal_color, terminal_column, terminal_row);
+	}
+}
+
 void terminal_putchar(char c)
 {
 	if (c == '\n')
 		terminal_putnewline();
+	else if (c == '\t')
+		terminal_puttab();
+	else if (c == '\b')
+		terminal_putdel();
 	else
 	{
 		terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
@@ -165,6 +201,42 @@ int terminal_write(const char *data, uint32_t size)
 	}
 	return size;
 }
+
+void terminal_move_cursor_up()
+{
+	if (terminal_row == 0)
+		return;
+	else
+		terminal_row -= 1;
+	update_cursor_pos(terminal_column, terminal_row);
+};
+
+void terminal_move_cursor_down()
+{
+	if (terminal_row == VGA_HEIGHT - 1)
+		return;
+	else
+		terminal_row += 1;
+	update_cursor_pos(terminal_column, terminal_row);
+};
+
+void terminal_move_cursor_left()
+{
+	if (terminal_column == 0)
+		return;
+	else
+		terminal_column -= 1;
+	update_cursor_pos(terminal_column, terminal_row);
+};
+
+void terminal_move_cursor_right()
+{
+	if (terminal_column == VGA_WIDTH - 1)
+		return;
+	else
+		terminal_column += 1;
+	update_cursor_pos(terminal_column, terminal_row);
+};
 
 int terminal_writestring(const char *data)
 {

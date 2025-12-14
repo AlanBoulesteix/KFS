@@ -57,5 +57,9 @@ void terminal_putnewline();
 void terminal_putchar(char c);
 int terminal_write(const char *data, uint32_t size);
 int terminal_writestring(const char *data);
+void terminal_move_cursor_right();
+void terminal_move_cursor_left();
+void terminal_move_cursor_down();
+void terminal_move_cursor_up();
 
 #endif
