@@ -2,11 +2,11 @@
 #include "../../includes/io.h"
 #include "../../includes/klib.h"
 
-uint32_t terminal_row;
-uint32_t terminal_column;
-uint8_t terminal_color;
-uint16_t *terminal_buffer = (uint16_t *)VGA_MEMORY;
-struct color_map colors[] = {
+terminal_window_t terminals[2];
+static uint8_t index_terminal = 0;
+static uint16_t *vga = (uint16_t *)VGA_MEMORY;
+
+color_map_t colors[] = {
 		{"black", VGA_COLOR_BLACK},
 		{"blue", VGA_COLOR_BLUE},
 		{"green", VGA_COLOR_GREEN},
@@ -45,31 +45,55 @@ void update_cursor_pos(uint32_t x, uint32_t y)
 	outb(VGA_CONTROLER_SET, (pos >> 8) & 0xFF);
 }
 
+void save_terminal()
+{
+	for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
+	{
+		terminals[index_terminal].terminal_buffer[i] = vga[i];
+	}
+}
+
+void switch_terminal_window()
+{
+	save_terminal();
+	index_terminal = (index_terminal + 1) % 2;
+
+	for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
+	{
+		vga[i] = terminals[index_terminal].terminal_buffer[i];
+	}
+
+	update_cursor_pos(terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+}
+
 void terminal_initialize(void)
 {
-	terminal_row = 0;
-	terminal_column = 0;
-	terminal_color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
-
-	for (uint32_t y = 0; y < VGA_HEIGHT; y++)
+	for (int i = 0; i < 2; i++)
 	{
-		for (uint32_t x = 0; x < VGA_WIDTH; x++)
+		terminals[i].terminal_row = 0;
+		terminals[i].terminal_column = 0;
+		terminals[i].terminal_color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
+
+		for (uint32_t y = 0; y < VGA_HEIGHT; y++)
 		{
-			const uint32_t index = y * VGA_WIDTH + x;
-			terminal_buffer[index] = vga_entry(' ', terminal_color);
+			for (uint32_t x = 0; x < VGA_WIDTH; x++)
+			{
+				const uint32_t index = y * VGA_WIDTH + x;
+				vga[index] = vga_entry(' ', terminals[i].terminal_color);
+			}
 		}
 	}
 }
 
 void terminal_setcolor(uint8_t color)
 {
-	terminal_color = color;
+	terminals[index_terminal].terminal_color = color;
 }
 
 void terminal_putentryat(char c, uint8_t color, uint32_t x, uint32_t y)
 {
 	const uint32_t index = y * VGA_WIDTH + x;
-	terminal_buffer[index] = vga_entry(c, color);
+	vga[index] = vga_entry(c, color);
 }
 
 void indent_terminal_rows()
@@ -82,39 +106,75 @@ void indent_terminal_rows()
 		{
 			uint32_t index_dest = y * VGA_WIDTH + x;
 			uint32_t index_src = (y + 1) * VGA_WIDTH + x;
-			terminal_buffer[index_dest] = terminal_buffer[index_src];
+			vga[index_dest] = vga[index_src];
 		}
 	}
 	for (uint32_t x = 0; x < VGA_WIDTH; x++)
 	{
 		const uint32_t index = y * VGA_WIDTH + x;
-		terminal_buffer[index] = vga_entry(' ', terminal_color);
+		vga[index] = vga_entry(' ', terminals[index_terminal].terminal_color);
 	}
-	terminal_row = VGA_HEIGHT - 1;
+	terminals[index_terminal].terminal_row = VGA_HEIGHT - 1;
 }
 
 void terminal_putnewline()
 {
-	if (++terminal_row == VGA_HEIGHT)
+	if (++terminals[index_terminal].terminal_row == VGA_HEIGHT)
 		indent_terminal_rows();
-	terminal_column = 0;
+	terminals[index_terminal].terminal_column = 0;
+}
+
+void terminal_puttab()
+{
+	uint32_t spaces = 4 - (terminals[index_terminal].terminal_column % 4);
+
+	for (uint32_t i = 0; i < spaces; i++)
+	{
+		terminal_putentryat(' ', terminals[index_terminal].terminal_color, terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+
+		if (++terminals[index_terminal].terminal_column == VGA_WIDTH)
+		{
+			terminals[index_terminal].terminal_column = 0;
+			if (++terminals[index_terminal].terminal_row == VGA_HEIGHT)
+				indent_terminal_rows();
+		}
+	}
+}
+
+void terminal_putdel()
+{
+	if (terminals[index_terminal].terminal_column > 0)
+	{
+		terminals[index_terminal].terminal_column--;
+		terminal_putentryat(' ', terminals[index_terminal].terminal_color, terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+	}
+	else if (terminals[index_terminal].terminal_row > 0)
+	{
+		terminals[index_terminal].terminal_row--;
+		terminals[index_terminal].terminal_column = VGA_WIDTH - 1;
+		terminal_putentryat(' ', terminals[index_terminal].terminal_color, terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+	}
 }
 
 void terminal_putchar(char c)
 {
 	if (c == '\n')
 		terminal_putnewline();
+	else if (c == '\t')
+		terminal_puttab();
+	else if (c == '\b')
+		terminal_putdel();
 	else
 	{
-		terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
-		if (++terminal_column == VGA_WIDTH)
+		terminal_putentryat(c, terminals[index_terminal].terminal_color, terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+		if (++terminals[index_terminal].terminal_column == VGA_WIDTH)
 		{
-			terminal_column = 0;
-			if (++terminal_row == VGA_HEIGHT)
+			terminals[index_terminal].terminal_column = 0;
+			if (++terminals[index_terminal].terminal_row == VGA_HEIGHT)
 				indent_terminal_rows();
 		}
 	}
-	update_cursor_pos(terminal_column, terminal_row);
+	update_cursor_pos(terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
 }
 
 static bool read_tag(char tag[32])
@@ -165,6 +225,42 @@ int terminal_write(const char *data, uint32_t size)
 	}
 	return size;
 }
+
+void terminal_move_cursor_up()
+{
+	if (terminals[index_terminal].terminal_row == 0)
+		return;
+	else
+		terminals[index_terminal].terminal_row -= 1;
+	update_cursor_pos(terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+};
+
+void terminal_move_cursor_down()
+{
+	if (terminals[index_terminal].terminal_row == VGA_HEIGHT - 1)
+		return;
+	else
+		terminals[index_terminal].terminal_row += 1;
+	update_cursor_pos(terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+};
+
+void terminal_move_cursor_left()
+{
+	if (terminals[index_terminal].terminal_column == 0)
+		return;
+	else
+		terminals[index_terminal].terminal_column -= 1;
+	update_cursor_pos(terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+};
+
+void terminal_move_cursor_right()
+{
+	if (terminals[index_terminal].terminal_column == VGA_WIDTH - 1)
+		return;
+	else
+		terminals[index_terminal].terminal_column += 1;
+	update_cursor_pos(terminals[index_terminal].terminal_column, terminals[index_terminal].terminal_row);
+};
 
 int terminal_writestring(const char *data)
 {
